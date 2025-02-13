@@ -1,0 +1,59 @@
+name: Push Docker Images to Private Registry
+
+on:
+  push:
+    branches:
+      - master # 当推送到 master 分支时触发
+env: # 定义全局 ENV 变量，易于管理
+  IMAGE_LIST_FILE: "image.txt"                    # 镜像列表文件
+  ALI_YUN_REGISTRY_URL: ${{ secrets.ALI_REGISTRY_URL } # 阿里云镜像仓库地址
+  ALI_YUN_NAMESPACE: ${{secrets.ALI_NAME_SPACE}}             # 阿里云命名空间
+  ALI_YUN_USERNAME: ${{ secrets.ALI_YUN_USERNAME }} # 阿里云用户名
+  ALI_YUN_PASSWORD: ${{ secrets.ALI_YUN_PASSWORD }} # 阿里云密码
+
+jobs:
+  push-to-private:
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: 检出代码
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      # Step 2: 读取镜像列表保存到 ENV
+      - name: Read image list
+        id: read-images
+        run: |
+          if [ ! -f "${{ env.IMAGE_LIST_FILE }}" ]; then
+            echo "Error: ${IMAGE_LIST_FILE} not found!" >&2
+            exit 1
+          fi
+          IMAGES=$(cat ${{ env.IMAGE_LIST_FILE }})
+          echo "IMAGES=$IMAGES" >> $GITHUB_ENV
+
+#      # Step 3: Docker Hub 登录
+#      - name: Log in to Docker Hub
+#        run: |
+#          echo "$ALI_YUN_PASSWORD" | docker login --username "$ALI_YUN_USERNAME" --password-stdin $ALI_YUN_REGISTRY_URL
+
+      # Step 4: 循环处理镜像
+      - name: Pull, tag, and push images
+        run: |
+          for IMAGE in $IMAGES; do
+            echo "Processing image: $IMAGE" # 打印当前正在操作的镜像
+          
+            # 构建目标镜像名（删除 Docker Hub 命名空间部分）
+            TARGET_IMAGE="$ALI_YUN_REGISTRY_URL/$ALI_YUN_NAMESPACE:${IMAGE#*/}"
+            echo "Target image: $TARGET_IMAGE" # 打印目标镜像名
+          
+            # 拉取镜像
+            docker pull $IMAGE
+
+            # 为目标仓库重新打标签
+            docker tag $IMAGE $TARGET_IMAGE
+
+            # 登录私有仓库（如果未登录）
+              echo "$ALI_YUN_PASSWORD" | docker login --username "$ALI_YUN_USERNAME" --password-stdin $ALI_YUN_REGISTRY_URL
+
+            # 推送镜像至私有仓库
+            docker push $TARGET_IMAGE
+          done
